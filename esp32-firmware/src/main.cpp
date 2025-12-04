@@ -14,6 +14,7 @@ PubSubClient mqttClient(AWS_IOT_ENDPOINT, AWS_IOT_PORT, wifiClient);
 WiFiManager wm;
 
 unsigned long lastHeartbeat = 0;
+bool firstConnection = true;
 
 // ------------------------------
 // GPIO
@@ -98,19 +99,37 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 }
 
 void connectMQTT() {
-  while (!mqttClient.connected()) {
+  int retries = 0;
+  while (!mqttClient.connected() && retries < 3) {
     Serial.print("Connecting to AWS IoT...");
 
     if (mqttClient.connect(THING_NAME)) {
       Serial.println("connected");
       mqttClient.subscribe(MQTT_CMD_TOPIC, 1);
+      Serial.println("Subscribed to command topic");
+
+      for (int i = 0; i < 10; i++) {
+        mqttClient.loop();
+        delay(100);
+      }
+      if (firstConnection) {
+        publishStatus("{\"status\":\"online\"}");
+        firstConnection = false;
+      }
+      return;
     }
     else {
-      Serial.printf("failed, rc=%d, retrying in 5s\n", mqttClient.state());
+      retries++;
+      Serial.printf("failed, rc=%d, retry %d/3 in 5s\n", mqttClient.state(), retries);
       delay(5000);
     }
   }
+
+  if (!mqttClient.connected()) {
+    Serial.println("MQTT connection failed after 3 retries");
+  }
 }
+
 void setupMQTT() {
   wifiClient.setCACert(root_ca);
   wifiClient.setCertificate(device_cert);
@@ -141,14 +160,26 @@ void setup() {
 }
 
 void loop() {
-  if (mqttClient.loop()) {
-    if (millis() - lastHeartbeat > HEARTBEAT_INTERVAL) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected! Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+
+  if (!mqttClient.connected()) {
+    Serial.println("MQTT disconnected, reconnecting...");
+    connectMQTT();
+    delay(2000);
+  }
+
+  mqttClient.loop();
+
+  if (mqttClient.connected() && millis() - lastHeartbeat > HEARTBEAT_INTERVAL) {
+    if (mqttClient.connected() && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL)) {
+      Serial.printf("Sending heartbeat (Free heap: %d)\n", ESP.getFreeHeap());
       publishStatus("{\"status\":\"heartbeat\"}");
       lastHeartbeat = millis();
     }
   }
-  else {
-    connectMQTT();
-    publishStatus("{\"status\":\"online\"}");
-  }
+  delay(100);
 }

@@ -9,8 +9,8 @@
 #define MQTT_STATUS_TOPIC "home/pc/status"
 #define MQTT_ACK_TOPIC "home/pc/ack"
 
-#define POWER_BUTTON_GPIO 2
+#define POWER_BUTTON_GPIO 23
 
-#define HEARTBEAT_INTERVAL 300000
+#define HEARTBEAT_INTERVAL 15000
 
 #endif
